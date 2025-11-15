@@ -1,4 +1,3 @@
----
 
 # ✈️ FAA Aircraft Registry Loader
 
@@ -6,7 +5,7 @@ This project automates the ingestion of the FAA Releasable Aircraft Registry int
 
 ---
 
-### 📦 Features
+## 📦 Features
 
 - ✅ Downloads and parses the latest FAA registry ZIP
 - ✅ Normalized schema with foreign keys and ergonomic naming
@@ -119,9 +118,9 @@ This will download the ZIP, truncate old data, and load fresh records into `db/f
 SELECT state, COUNT(*) FROM master GROUP BY state ORDER BY COUNT(*) DESC;
 
 -- Find aircraft with deregistration records
-SELECT m.n_number, m.name, d.reason
+SELECT m."N-NUMBER", m."NAME", d."CANCEL-DATE", d."STATUS-CODE"
 FROM master m
-JOIN dereg d ON m.n_number = d.n_number;
+JOIN dereg d ON m."N-NUMBER" = d."N-NUMBER";
 ```
 
 ---
