@@ -14,6 +14,8 @@ The modular design separates concerns, making the codebase:
 - More flexible (easy to swap database engines or modify logic)
 """
 
+import argparse  # For parsing command-line arguments
+
 # Import database connection factory - abstracts SQLite vs SQL Server differences
 from db_connection import get_connection
 
@@ -21,10 +23,79 @@ from db_connection import get_connection
 from schema import initialize_schema
 
 # Import data loader - handles downloading and importing FAA data
-from loader import run_loader
+from loader import run_loader, download_zip
 
 # Import configuration constants - centralized settings for the application
 from config import CONFIG
+
+
+def parse_args():
+    """
+    Parse command-line arguments for database configuration and loading options.
+    
+    Provides flexible configuration through command-line interface, allowing users
+    to specify database engine (SQLite or SQL Server), connection parameters,
+    and loading options without modifying code.
+    
+    Returns:
+        argparse.Namespace: Parsed arguments with all configuration options
+    """
+    parser = argparse.ArgumentParser(
+        description="Load FAA Aircraft Registry data into SQLite or SQL Server"
+    )
+    
+    # Database engine selection - determines which database system to use
+    parser.add_argument(
+        "--engine",
+        choices=["sqlite", "sqlserver"],
+        default="sqlite",
+        help="Database engine to use (default: sqlite)"
+    )
+    
+    # SQLite-specific options
+    parser.add_argument(
+        "--db-path",
+        default=CONFIG["DB_PATH"],
+        help="Path to SQLite database file (default: from CONFIG)"
+    )
+    
+    # SQL Server-specific options
+    parser.add_argument(
+        "--server",
+        help="SQL Server hostname or instance (required for sqlserver engine)"
+    )
+    parser.add_argument(
+        "--database",
+        help="SQL Server database name (required for sqlserver engine)"
+    )
+    parser.add_argument(
+        "--trusted",
+        action="store_true",
+        help="Use Windows authentication for SQL Server (default: SQL auth)"
+    )
+    parser.add_argument(
+        "--username",
+        help="SQL Server username (required if not using --trusted)"
+    )
+    parser.add_argument(
+        "--password",
+        help="SQL Server password (required if not using --trusted)"
+    )
+    
+    # Loading options
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=5000,
+        help="Number of rows to insert per batch (default: 5000)"
+    )
+    parser.add_argument(
+        "--skip-download",
+        action="store_true",
+        help="Skip downloading ZIP file (use existing local file)"
+    )
+    
+    return parser.parse_args()
 
 
 def main():
@@ -33,10 +104,11 @@ def main():
     
     This function coordinates the complete data loading workflow:
     1. Parse command-line arguments to determine database engine and connection params
-    2. Establish database connection using the appropriate driver
-    3. Initialize/recreate the database schema (tables and structure)
-    4. Load FAA registry data from ZIP file into database tables
-    5. Commit all changes and close the connection
+    2. Download FAA ZIP file (unless --skip-download is specified)
+    3. Establish database connection using the appropriate driver
+    4. Initialize/recreate the database schema (tables and structure)
+    5. Load FAA registry data from ZIP file into database tables
+    6. Commit all changes and close the connection
     
     The modular approach means each step is handled by a specialized module,
     making the main flow easy to understand and modify. Error handling and
@@ -45,6 +117,11 @@ def main():
     # Parse command-line arguments (engine type, connection details, batch size, etc.)
     # This allows the user to control behavior without modifying code
     args = parse_args()
+    
+    # Download the FAA ZIP file unless user specified --skip-download
+    # This allows reusing an existing file during testing/development
+    if not args.skip_download:
+        download_zip(CONFIG["FAA_URL"], CONFIG["ZIP_PATH"])
     
     # Establish database connection using the factory pattern
     # get_connection() abstracts away SQLite vs SQL Server differences
@@ -61,9 +138,9 @@ def main():
     initialize_schema(cursor, args.engine)
     
     # Load the FAA registry data from ZIP file into database tables
-    # This is the core operation: download (if needed), extract, and bulk insert
-    # Processes multiple tables defined in CONFIG with duplicate detection
-    run_loader(args, cursor)
+    # This is the core operation: extract and bulk insert with duplicate detection
+    # Passes CONFIG dict, args namespace, and cursor to the loader module
+    run_loader(CONFIG, args, cursor)
     
     # Commit all changes to make them permanent
     # This is critical - without commit, all work would be rolled back
@@ -71,3 +148,11 @@ def main():
     
     # Clean up: close the database connection and release resources
     conn.close()
+    
+    print("✅ FAA registry load complete.")
+
+
+# Entry point: only execute main() when script is run directly
+# This allows the module to be imported without executing main()
+if __name__ == "__main__":
+    main()
