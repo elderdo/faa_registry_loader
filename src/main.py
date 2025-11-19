@@ -15,6 +15,7 @@ The modular design separates concerns, making the codebase:
 """
 
 import argparse  # For parsing command-line arguments
+import os        # For environment variable access in error messages
 
 # Import database connection factory - abstracts SQLite vs SQL Server differences
 from db_connection import get_connection
@@ -66,7 +67,8 @@ def parse_args():
     )
     parser.add_argument(
         "--database",
-        help="SQL Server database name (required for sqlserver engine)"
+        default="FAARegistry",
+        help="SQL Server database name (default: FAARegistry)"
     )
     parser.add_argument(
         "--trusted",
@@ -94,8 +96,75 @@ def parse_args():
         action="store_true",
         help="Skip downloading ZIP file (use existing local file)"
     )
+    parser.add_argument(
+        "--no-create-db",
+        action="store_true",
+        help="Don't automatically create database if it doesn't exist (SQL Server only)"
+    )
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Validate SQL Server required arguments
+    if args.engine == "sqlserver":
+        if not args.server or not args.database:
+            parser.error("--server and --database are required for SQL Server")
+        if not args.trusted and (not args.username or not args.password):
+            parser.error("--username and --password required when not using --trusted")
+    
+    return args
+
+
+def create_sqlserver_database(args):
+    """
+    Create SQL Server database if it doesn't exist.
+    
+    Connects to the master database to check for and create the target database.
+    This is necessary because SQL Server doesn't allow connecting to a non-existent
+    database, unlike SQLite which creates the file automatically.
+    
+    Args:
+        args: Parsed arguments containing server and database information
+    """
+    import pyodbc
+    from urllib.parse import quote_plus
+    
+    print(f"🔍 Checking if database '{args.database}' exists...")
+    
+    # Connect to master database to create the target database
+    conn_str = (
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={args.server};DATABASE=master;"
+    )
+    conn_str += "Trusted_Connection=yes;" if args.trusted else f"UID={args.username};PWD={quote_plus(args.password)};"
+    
+    try:
+        # Connect with autocommit=True to allow CREATE DATABASE outside of transactions
+        conn = pyodbc.connect(conn_str, autocommit=True)
+        cursor = conn.cursor()
+        
+        # Check if database exists
+        cursor.execute(
+            "SELECT database_id FROM sys.databases WHERE name = ?",
+            (args.database,)
+        )
+        
+        if cursor.fetchone():
+            print(f"✅ Database '{args.database}' already exists.")
+        else:
+            # Create the database (autocommit mode allows this)
+            print(f"🔨 Creating database '{args.database}'...")
+            cursor.execute(f"CREATE DATABASE [{args.database}]")
+            print(f"✅ Database '{args.database}' created successfully.")
+        
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ Error creating database: {e}")
+        print("\nYou may need to:")
+        print("  1. Grant CREATE DATABASE permission to your Windows user")
+        print("  2. Create the database manually as a SQL Server admin")
+        print("  3. Use SQL authentication with a user that has CREATE DATABASE rights")
+        raise
 
 
 def main():
@@ -123,10 +192,27 @@ def main():
     if not args.skip_download:
         download_zip(CONFIG["FAA_URL"], CONFIG["ZIP_PATH"])
     
+    # For SQL Server, automatically create the database if it doesn't exist
+    # (unless --no-create-db flag is specified). This matches SQLite behavior.
+    if args.engine == "sqlserver" and not args.no_create_db:
+        create_sqlserver_database(args)
+    
     # Establish database connection using the factory pattern
     # get_connection() abstracts away SQLite vs SQL Server differences
     # Returns appropriate connection object based on args.engine
-    conn = get_connection(args)
+    try:
+        conn = get_connection(args)
+    except Exception as e:
+        if args.engine == "sqlserver":
+            print(f"\n❌ Failed to connect to SQL Server database '{args.database}'.")
+            print("\nPossible causes:")
+            print("  1. Database creation failed (check permissions)")
+            print("  2. Windows user lacks SQL Server login permissions")
+            print("  3. Incorrect server name or instance")
+            print("\nTo fix login issues, run as SQL Server admin:")
+            print(f"  sqlcmd -S {args.server} -E -Q \"CREATE LOGIN [{os.environ.get('COMPUTERNAME', 'COMPUTER')}\\{os.environ.get('USERNAME', 'USER')}] FROM WINDOWS\"")
+            print(f"\nOriginal error: {e}")
+        raise
     
     # Create a cursor for executing SQL statements
     # Cursor object provides method for running queries and managing results
