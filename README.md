@@ -133,6 +133,13 @@ JOIN dereg d ON m."N-NUMBER" = d."N-NUMBER";
 
 ---
 
+### Optional Tools
+
+If you don't have SQLite, you can download them:
+
+- [SQLite Command-Line Shell](https://www.sqlite.org/download.html): For inspecting the database manually via `.schema`, `.tables`, and SQL queries.
+- [DB Browser for SQLite](https://sqlitebrowser.org/): A GUI tool for browsing tables, running queries, and inspecting data visually.
+
 ### 📄 License
 
 MIT License — free to use, modify, and share.

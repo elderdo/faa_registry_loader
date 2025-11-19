@@ -1,1 +1,11 @@
+# FAA Registry Loader dependencies
+# Install with: pip install -r requirements.txt
+
+pyodbc>=4.0.30
 requests
+# NOTE: Requires Microsoft ODBC Driver 17 or 18 for SQL Server (system install)
+
+pytest>=9.0.1
+
+chardet>=5.2.0        # for robust encoding detection (optional)
+argparse              # built-in, but some environments list it explicitly
